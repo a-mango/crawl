@@ -15,35 +15,35 @@ use url::Url;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// The URL to start crawling from
-    #[arg(short, long)]
+    #[arg(short, long, env = "CRAWL_START_URL")]
     start_url: String,
 
     /// The maximum depth to crawl
-    #[arg(short, long, default_value_t = 2)]
+    #[arg(short, long, env = "CRAWL_DEPTH", default_value_t = 2)]
     depth: usize,
 
     /// The domain to scope crawling to
-    #[arg(long)]
+    #[arg(long, env = "CRAWL_SCOPE")]
     scope: Option<String>,
 
     /// Delay between requests in milliseconds
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, env = "CRAWL_DELAY_MS", default_value_t = 1000)]
     delay: u64,
 
     /// Custom User-Agent
-    #[arg(long, default_value = "rust-crawler/0.1.0")]
+    #[arg(long, env = "CRAWL_USER_AGENT", default_value = "rust-crawler/0.1.0")]
     user_agent: String,
 
     /// Maximum number of concurrent requests
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, env = "CRAWL_CONCURRENCY", default_value_t = 10)]
     concurrency: usize,
 
     /// Output file path (optional, outputs to stdout if not specified)
-    #[arg(short, long)]
+    #[arg(short, long, env = "CRAWL_OUTPUT")]
     output: Option<String>,
 
     /// Quiet mode - only output URLs (useful for piping)
-    #[arg(short, long)]
+    #[arg(short, long, env = "CRAWL_QUIET")]
     quiet: bool,
 }
 
