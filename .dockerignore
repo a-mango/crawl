@@ -1,0 +1,24 @@
+# Deny everything by default
+**
+
+# Keep this file itself in the build context so future edits are visible
+!/.dockerignore
+
+# Allow Dockerfile and minimal repo metadata required for building a Rust image
+!/Dockerfile
+!/Cargo.toml
+!/Cargo.lock
+!/src/**
+!/README.md
+
+# If you have any build scripts or other files required by your Dockerfile,
+# add them explicitly, for example:
+# !/build/**
+
+# Explicitly exclude common large or sensitive items (if present)
+/target
+/.git
+/.gitignore
+/.idea
+/.vscode
+.env

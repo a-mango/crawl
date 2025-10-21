@@ -1,0 +1,10 @@
+services:
+  crawl:
+    image: crawl:latest
+    build: .
+    environment:
+      CRAWL_START_URL: "https://example.com"
+      CRAWL_DEPTH: "3"
+      CRAWL_CONCURRENCY: "20"
+    volumes:
+      - ./output:/data
