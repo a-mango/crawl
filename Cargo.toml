@@ -1,6 +1,6 @@
 [package]
 name = "crawl"
-version = "0.2.0"
+version = "0.3.0"
 description = "A fast web crawler"
 repository = "https://github.com/a-mango/crawl"
 authors = ["acm"]

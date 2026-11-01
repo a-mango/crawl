@@ -59,7 +59,7 @@ crawl -s https://example.com
 - `--scope <DOMAIN>` - Only follow links on this domain and its subdomains (e.g. `example.com`), or on any host with this suffix if it starts with a dot (e.g. `.com`)
 - `--subdomains` - Stay on the start URL's site, including all of its subdomains (cannot be combined with `--scope`)
 - `--delay <MS>` - Delay between requests in milliseconds (default: 1000)
-- `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.2.0")
+- `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.3.0")
 - `--concurrency <NUM>` - Maximum number of concurrent requests (default: 10)
 - `--timeout <SECS>` - Per-request timeout in seconds (default: 30)
 - `--max-retries <NUM>` - Retries for network errors, timeouts, 429 and 5xx responses (default: 3)
@@ -192,7 +192,7 @@ Starting crawl: https://example.com
 Configuration:
   Max depth:    2
   Delay:        1000ms
-  User-Agent:   rust-crawler/0.2.0
+  User-Agent:   rust-crawler/0.3.0
   Concurrency:  10
   Retries:      3
   robots.txt:   respected
