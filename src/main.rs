@@ -1,9 +1,10 @@
 use clap::{CommandFactory, Parser};
 use crawl::crawler::{crawl, site_domain, CrawlConfig};
 use crawl::extractor;
+use crawl::storage;
 use std::collections::HashSet;
 use std::io::IsTerminal;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -51,7 +52,17 @@ struct Cli {
     #[arg(long, env = "CRAWL_IGNORE_ROBOTS")]
     ignore_robots: bool,
 
-    /// Output file path (optional, outputs to stdout if not specified)
+    /// Also start from every URL listed in the site's sitemaps
+    /// (from robots.txt `Sitemap:` lines, or /sitemap.xml)
+    #[arg(long, env = "CRAWL_SITEMAP")]
+    sitemap: bool,
+
+    /// Stop after visiting this many pages
+    #[arg(long, env = "CRAWL_MAX_PAGES")]
+    max_pages: Option<usize>,
+
+    /// Output file: .json, .txt, or .db/.sqlite/.sqlite3 for SQLite
+    /// (SQLite files are appended to, one crawl per run)
     #[arg(short, long, env = "CRAWL_OUTPUT")]
     output: Option<String>,
 
@@ -85,7 +96,8 @@ async fn main() {
             .filter(|s| !s.is_empty())
     };
 
-    // Check if stdout is a TTY or being piped, or if quiet mode is explicitly requested
+    // The banner and statistics are only printed to an interactive terminal.
+    // Diagnostics go to stderr and are only silenced by --quiet.
     let is_tty = std::io::stdout().is_terminal();
     let quiet_mode = cli.quiet || !is_tty;
 
@@ -118,6 +130,12 @@ Y88b.   888    888  888Y88b 888 d88P888
         if let Some(scope) = &scope {
             println!("  Scope:        {}", scope);
         }
+        if let Some(max) = cli.max_pages {
+            println!("  Max pages:    {}", max);
+        }
+        if cli.sitemap {
+            println!("  Sitemaps:     yes");
+        }
         println!("  Retries:      {}", cli.max_retries);
         println!(
             "  robots.txt:   {}",
@@ -131,6 +149,7 @@ Y88b.   888    888  888Y88b 888 d88P888
     }
 
     let start_time = Instant::now();
+    let started_at = SystemTime::now();
 
     let config = CrawlConfig {
         max_depth,
@@ -141,12 +160,14 @@ Y88b.   888    888  888Y88b 888 d88P888
         timeout: Duration::from_secs(cli.timeout),
         max_retries: cli.max_retries,
         respect_robots: !cli.ignore_robots,
-        quiet: quiet_mode,
+        use_sitemaps: cli.sitemap,
+        max_pages: cli.max_pages,
+        quiet: cli.quiet,
         ..CrawlConfig::default()
     };
 
-    let visited_urls = match crawl(start_url.as_str(), config).await {
-        Ok(urls) => urls,
+    let report = match crawl(start_url.as_str(), config).await {
+        Ok(report) => report,
         Err(e) => {
             eprintln!("Error: failed to start crawl: {}", e);
             std::process::exit(1);
@@ -154,13 +175,23 @@ Y88b.   888    888  888Y88b 888 d88P888
     };
 
     let elapsed = start_time.elapsed();
+    let finished_at = SystemTime::now();
+    let visited_urls = report.urls();
     let total_pages = visited_urls.len();
+    let failed = report
+        .pages
+        .iter()
+        .filter(|p| p.error.is_some() || p.status.is_some_and(|s| s >= 400))
+        .count();
 
     if !quiet_mode {
         println!("\n========================================");
         println!("Crawl complete!");
         println!("Statistics:");
         println!("  Total pages:  {}", total_pages);
+        if failed > 0 {
+            println!("  Failed:       {}", failed);
+        }
         println!("  Time elapsed: {:.2?}", elapsed);
         if total_pages > 0 {
             println!("  Avg per page: {:.2?}", elapsed / total_pages as u32);
@@ -169,13 +200,31 @@ Y88b.   888    888  888Y88b 888 d88P888
 
     // Save to file if output path specified
     if let Some(output_path) = cli.output {
-        match save_results(&output_path, &visited_urls) {
-            Ok(_) => {
+        let saved = if storage::is_sqlite_path(&output_path) {
+            storage::save_sqlite(
+                &output_path,
+                &extractor::normalize_url(start_url.as_str()),
+                started_at,
+                finished_at,
+                &report,
+            )
+            .map(|id| format!(" (crawl #{})", id))
+            .map_err(|e| e.to_string())
+        } else {
+            save_results(&output_path, &visited_urls)
+                .map(|_| String::new())
+                .map_err(|e| e.to_string())
+        };
+        match saved {
+            Ok(note) => {
                 if !quiet_mode {
-                    println!("\nResults saved to: {}", output_path);
+                    println!("\nResults saved to: {}{}", output_path, note);
                 }
             }
-            Err(e) => eprintln!("\nError: Failed to save results: {}", e),
+            Err(e) => {
+                eprintln!("\nError: Failed to save results to {}: {}", output_path, e);
+                std::process::exit(1);
+            }
         }
     }
 }
