@@ -58,6 +58,9 @@ crawl -s https://example.com
 - `--delay <MS>` - Delay between requests in milliseconds (default: 1000)
 - `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.2.0")
 - `--concurrency <NUM>` - Maximum number of concurrent requests (default: 10)
+- `--timeout <SECS>` - Per-request timeout in seconds (default: 30)
+- `--max-retries <NUM>` - Retries for network errors, timeouts, 429 and 5xx responses (default: 3)
+- `--ignore-robots` - Ignore robots.txt rules and `Crawl-delay`
 - `-o, --output <FILE>` - Output file path (supports .json or .txt extensions)
 - `-q, --quiet` - Quiet mode - only output URLs (useful for piping)
 
@@ -113,16 +116,19 @@ crawl -s https://example.com | head -n 10
 
 Every option can also be set through an environment variable. Command-line flags take precedence.
 
-| Variable            | Flag            |
-|---------------------|-----------------|
-| `CRAWL_START_URL`   | `--start-url`   |
-| `CRAWL_DEPTH`       | `--depth`       |
-| `CRAWL_SCOPE`       | `--scope`       |
-| `CRAWL_DELAY_MS`    | `--delay`       |
-| `CRAWL_USER_AGENT`  | `--user-agent`  |
-| `CRAWL_CONCURRENCY` | `--concurrency` |
-| `CRAWL_OUTPUT`      | `--output`      |
-| `CRAWL_QUIET`       | `--quiet`       |
+| Variable              | Flag              |
+|-----------------------|-------------------|
+| `CRAWL_START_URL`     | `--start-url`     |
+| `CRAWL_DEPTH`         | `--depth`         |
+| `CRAWL_SCOPE`         | `--scope`         |
+| `CRAWL_DELAY_MS`      | `--delay`         |
+| `CRAWL_USER_AGENT`    | `--user-agent`    |
+| `CRAWL_CONCURRENCY`   | `--concurrency`   |
+| `CRAWL_OUTPUT`        | `--output`        |
+| `CRAWL_QUIET`         | `--quiet`         |
+| `CRAWL_TIMEOUT_SECS`  | `--timeout`       |
+| `CRAWL_MAX_RETRIES`   | `--max-retries`   |
+| `CRAWL_IGNORE_ROBOTS` | `--ignore-robots` |
 
 See [`.env.example`](.env.example) for a template.
 
@@ -170,6 +176,8 @@ Configuration:
   Delay:        1000ms
   User-Agent:   rust-crawler/0.2.0
   Concurrency:  10
+  Retries:      3
+  robots.txt:   respected
 ========================================
 
 https://example.com
@@ -203,6 +211,29 @@ When using `-o/--output`, results are saved in the specified format:
 
 Non-HTTP schemes (mailto:, ftp:, etc.) are skipped. Skipped links and fetch errors are reported on stderr in normal mode, so stdout only ever contains URLs. Links are only extracted from successful (2xx) HTML responses.
 
+## Politeness
+
+- **robots.txt** is fetched once per site and its rules are matched against the
+  User-Agent's product token (the part before `/`). Following
+  [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309), a missing robots.txt (4xx)
+  allows everything, while a server error or unreachable robots.txt blocks the
+  whole site. `Crawl-delay` is honoured when it is longer than `--delay`.
+  Use `--ignore-robots` only on sites you own or have permission to crawl.
+- **Retries** use exponential backoff starting at 500ms (capped at 60s).
+  A `Retry-After` header on 429/503 responses takes precedence.
+
+## Library usage
+
+```rust
+use crawl::crawler::{crawl, CrawlConfig};
+
+let urls = crawl("https://example.com", CrawlConfig {
+    max_depth: 3,
+    scope: Some("example.com".into()),
+    ..CrawlConfig::default()
+}).await?;
+```
+
 ## Architecture
 
 The crawler is built with:
@@ -233,9 +264,7 @@ The project includes:
 
 ## Limitations
 
-- No robots.txt support
 - No sitemap.xml support
-- No retry logic for failed requests
 - No resume/checkpoint functionality
 
 ## Contributing
@@ -248,12 +277,12 @@ This software is licensed under the MIT License. See [LICENSE](LICENSE) for deta
 
 ## Roadmap
 
-- [ ] Add retry logic with exponential backoff
-- [ ] Respect robots.txt
+- [x] Add retry logic with exponential backoff
+- [x] Respect robots.txt
 - [ ] Support for sitemap.xml
 - [ ] Resume crawling from checkpoint
 - [ ] Better progress indicators
-- [ ] Handle rate limiting (429 responses)
+- [x] Handle rate limiting (429 responses)
 - [ ] Add CSV output format
 - [ ] Add option to download crawled content
 - [ ] Store crawled links as a graph structure

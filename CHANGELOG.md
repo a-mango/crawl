@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- robots.txt support (RFC 9309): rules are fetched once per site and matched
+  against the User-Agent; `Crawl-delay` is honoured. Opt out with `--ignore-robots`
+- Retries with exponential backoff for network errors, timeouts, 429 and 5xx
+  responses, honouring `Retry-After` (`--max-retries`, default 3)
+- Per-request timeout (`--timeout`, default 30s)
+- Invalid start URLs are rejected with a clear error instead of a panic
+
+### Changed
+- **Breaking (library):** `crawler::crawl` now takes a start URL and a
+  `CrawlConfig` and returns the visited URLs, instead of nine positional
+  arguments and a shared `visited` set
+- The `user_agent` setting is now applied by the library itself (it was
+  previously ignored by `crawl` and only worked through the CLI's client)
+
 ## [0.2.0] - 2026-11-01
 
 ### Added
@@ -50,5 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No robots.txt support
 - No retry logic for failed requests
 
+[Unreleased]: https://github.com/a-mango/crawl/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/a-mango/crawl/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/a-mango/crawl/releases/tag/v0.1.0

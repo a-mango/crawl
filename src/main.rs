@@ -1,12 +1,9 @@
 use clap::Parser;
-use crawl::crawler::crawl;
+use crawl::crawler::{crawl, CrawlConfig};
 use crawl::extractor;
 use std::collections::HashSet;
 use std::io::IsTerminal;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::time::Instant;
-use tokio::sync::Semaphore;
+use std::time::{Duration, Instant};
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -14,7 +11,7 @@ use url::Url;
 struct Cli {
     /// The URL to start crawling from
     #[arg(short, long, env = "CRAWL_START_URL")]
-    start_url: String,
+    start_url: Url,
 
     /// The maximum depth to crawl
     #[arg(short, long, env = "CRAWL_DEPTH", default_value_t = 2)]
@@ -36,6 +33,18 @@ struct Cli {
     #[arg(long, env = "CRAWL_CONCURRENCY", default_value_t = 10)]
     concurrency: usize,
 
+    /// Per-request timeout in seconds
+    #[arg(long, env = "CRAWL_TIMEOUT_SECS", default_value_t = 30)]
+    timeout: u64,
+
+    /// Number of retries for failed requests (network errors, 429, 5xx)
+    #[arg(long, env = "CRAWL_MAX_RETRIES", default_value_t = 3)]
+    max_retries: u32,
+
+    /// Ignore robots.txt rules and Crawl-delay
+    #[arg(long, env = "CRAWL_IGNORE_ROBOTS")]
+    ignore_robots: bool,
+
     /// Output file path (optional, outputs to stdout if not specified)
     #[arg(short, long, env = "CRAWL_OUTPUT")]
     output: Option<String>,
@@ -48,17 +57,9 @@ struct Cli {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let start_url = Url::parse(&cli.start_url).expect("Failed to parse start URL");
+    let start_url = cli.start_url;
     let max_depth = cli.depth;
-    let delay = Duration::from_millis(cli.delay);
     let user_agent = cli.user_agent;
-    let visited = Arc::new(Mutex::new(HashSet::new()));
-    let scope_domain = cli.scope.clone();
-    let semaphore = Arc::new(Semaphore::new(cli.concurrency));
-    let client = reqwest::Client::builder()
-        .user_agent(&user_agent)
-        .build()
-        .unwrap();
 
     // Check if stdout is a TTY or being piped, or if quiet mode is explicitly requested
     let is_tty = std::io::stdout().is_terminal();
@@ -93,26 +94,42 @@ Y88b.   888    888  888Y88b 888 d88P888
         if let Some(scope) = &cli.scope {
             println!("  Scope:        {}", scope);
         }
+        println!("  Retries:      {}", cli.max_retries);
+        println!(
+            "  robots.txt:   {}",
+            if cli.ignore_robots {
+                "ignored"
+            } else {
+                "respected"
+            }
+        );
         println!("========================================\n");
     }
 
     let start_time = Instant::now();
 
-    crawl(
-        client,
-        start_url.to_string(),
+    let config = CrawlConfig {
         max_depth,
-        visited.clone(),
-        delay,
-        scope_domain,
-        user_agent,
-        semaphore,
-        quiet_mode,
-    )
-    .await;
+        delay: Duration::from_millis(cli.delay),
+        scope: cli.scope.clone(),
+        concurrency: cli.concurrency,
+        user_agent: user_agent.clone(),
+        timeout: Duration::from_secs(cli.timeout),
+        max_retries: cli.max_retries,
+        respect_robots: !cli.ignore_robots,
+        quiet: quiet_mode,
+        ..CrawlConfig::default()
+    };
+
+    let visited_urls = match crawl(start_url.as_str(), config).await {
+        Ok(urls) => urls,
+        Err(e) => {
+            eprintln!("Error: failed to start crawl: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let elapsed = start_time.elapsed();
-    let visited_urls = visited.lock().unwrap();
     let total_pages = visited_urls.len();
 
     if !quiet_mode {
