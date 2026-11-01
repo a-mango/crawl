@@ -2,9 +2,13 @@ services:
   crawl:
     image: crawl:latest
     build: .
+    # Run as the host user so results written to ./output are owned by you.
+    # Override with CRAWL_UID / CRAWL_GID if your IDs differ from 1000.
+    user: "${CRAWL_UID:-1000}:${CRAWL_GID:-1000}"
     environment:
       CRAWL_START_URL: "https://example.com"
       CRAWL_DEPTH: "3"
       CRAWL_CONCURRENCY: "20"
     volumes:
-      - ./output:/data
+      # :z relabels the directory so SELinux hosts (Fedora, RHEL) allow access
+      - ./output:/data:z

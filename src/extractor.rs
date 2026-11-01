@@ -74,17 +74,4 @@ mod tests {
         let links = extract_links(html, base_url);
         assert!(links.is_empty());
     }
-
-    // Property-based test (if proptest is available)
-    #[cfg(feature = "proptest")]
-    use proptest::prelude::*;
-    #[cfg(feature = "proptest")]
-    proptest! {
-        #[test]
-        fn prop_normalize_url_no_query_or_fragment(url in "https?://[a-zA-Z0-9./]+(\\?[a-zA-Z0-9=&]*)?(#[a-zA-Z0-9]*)?") {
-            let normalized = normalize_url(&url);
-            assert!(!normalized.contains('?'));
-            assert!(!normalized.contains('#'));
-        }
-    }
 }

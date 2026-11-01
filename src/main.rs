@@ -1,10 +1,8 @@
-mod crawler;
-mod extractor;
-
-use crate::crawler::crawl;
-use atty::Stream;
 use clap::Parser;
+use crawl::crawler::crawl;
+use crawl::extractor;
 use std::collections::HashSet;
+use std::io::IsTerminal;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::time::Instant;
@@ -31,7 +29,7 @@ struct Cli {
     delay: u64,
 
     /// Custom User-Agent
-    #[arg(long, env = "CRAWL_USER_AGENT", default_value = "rust-crawler/0.1.0")]
+    #[arg(long, env = "CRAWL_USER_AGENT", default_value = concat!("rust-crawler/", env!("CARGO_PKG_VERSION")))]
     user_agent: String,
 
     /// Maximum number of concurrent requests
@@ -63,7 +61,7 @@ async fn main() {
         .unwrap();
 
     // Check if stdout is a TTY or being piped, or if quiet mode is explicitly requested
-    let is_tty = atty::is(Stream::Stdout);
+    let is_tty = std::io::stdout().is_terminal();
     let quiet_mode = cli.quiet || !is_tty;
 
     if !quiet_mode {
