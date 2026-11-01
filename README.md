@@ -54,7 +54,8 @@ crawl -s https://example.com
 
 - `-s, --start-url <URL>` - **Required**. The URL to start crawling from
 - `-d, --depth <NUM>` - Maximum depth to crawl (default: 2)
-- `--scope <DOMAIN>` - Domain to scope crawling to (e.g., `example.com`, `.com`)
+- `--scope <DOMAIN>` - Only follow links on this domain and its subdomains (e.g. `example.com`), or on any host with this suffix if it starts with a dot (e.g. `.com`)
+- `--subdomains` - Stay on the start URL's site, including all of its subdomains (cannot be combined with `--scope`)
 - `--delay <MS>` - Delay between requests in milliseconds (default: 1000)
 - `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.2.0")
 - `--concurrency <NUM>` - Maximum number of concurrent requests (default: 10)
@@ -77,6 +78,16 @@ Crawl only within a specific domain:
 ```bash
 crawl -s https://example.com --scope example.com
 ```
+
+Crawl a site and all of its subdomains (here `www.example.com`, `blog.example.com`, …).
+The site is derived from the start URL using the [Public Suffix List](https://publicsuffix.org/),
+so `www.example.co.uk` scopes to `example.co.uk`:
+
+```bash
+crawl -s https://www.example.com --subdomains
+```
+
+Without `--scope` or `--subdomains`, the crawler follows links to any host.
 
 Save results to a JSON file:
 
@@ -121,6 +132,7 @@ Every option can also be set through an environment variable. Command-line flags
 | `CRAWL_START_URL`     | `--start-url`     |
 | `CRAWL_DEPTH`         | `--depth`         |
 | `CRAWL_SCOPE`         | `--scope`         |
+| `CRAWL_SUBDOMAINS`    | `--subdomains`    |
 | `CRAWL_DELAY_MS`      | `--delay`         |
 | `CRAWL_USER_AGENT`    | `--user-agent`    |
 | `CRAWL_CONCURRENCY`   | `--concurrency`   |
@@ -286,3 +298,4 @@ This software is licensed under the MIT License. See [LICENSE](LICENSE) for deta
 - [ ] Add CSV output format
 - [ ] Add option to download crawled content
 - [ ] Store crawled links as a graph structure
+- [ ] Store crawl results in a database

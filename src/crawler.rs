@@ -10,7 +10,7 @@ use std::time::Duration;
 use texting_robots::Robot;
 use tokio::sync::{OnceCell, Semaphore};
 use tokio::time::sleep;
-use url::Url;
+use url::{Host, Url};
 
 /// Longest wait between retries, whether from backoff or a `Retry-After` header.
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(60);
@@ -311,6 +311,21 @@ fn retry_after(resp: &Response) -> Option<Duration> {
     Some(Duration::from_secs(secs).min(MAX_RETRY_WAIT))
 }
 
+/// Returns the registrable domain of a URL's host, using the Public Suffix
+/// List: `www.example.co.uk` gives `example.co.uk`, `user.github.io` stays
+/// as is. IP addresses and hosts without a known suffix (e.g. `localhost`)
+/// are returned unchanged. Use it as `CrawlConfig::scope` to crawl a site
+/// together with all of its subdomains.
+pub fn site_domain(url: &Url) -> Option<String> {
+    match url.host()? {
+        Host::Domain(host) => {
+            let host = host.trim_end_matches('.');
+            Some(psl::domain_str(host).unwrap_or(host).to_string())
+        }
+        _ => url.host_str().map(str::to_string),
+    }
+}
+
 fn in_scope(host: &str, scope: &str) -> bool {
     if scope.starts_with('.') {
         host.ends_with(scope)
@@ -330,6 +345,28 @@ mod tests {
         assert!(!in_scope("notexample.com", "example.com"));
         assert!(in_scope("foo.com", ".com"));
         assert!(!in_scope("foo.org", ".com"));
+    }
+
+    #[test]
+    fn site_domain_strips_subdomains() {
+        let domain = |u: &str| site_domain(&Url::parse(u).unwrap());
+        assert_eq!(domain("https://example.com/"), Some("example.com".into()));
+        assert_eq!(
+            domain("https://www.example.com/a"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            domain("https://a.b.example.co.uk/"),
+            Some("example.co.uk".into())
+        );
+        assert_eq!(
+            domain("https://user.github.io/"),
+            Some("user.github.io".into())
+        );
+        assert_eq!(domain("http://localhost:8080/"), Some("localhost".into()));
+        assert_eq!(domain("http://127.0.0.1:8080/"), Some("127.0.0.1".into()));
+        assert_eq!(domain("http://[::1]/"), Some("[::1]".into()));
+        assert_eq!(domain("mailto:a@b.c"), None);
     }
 
     #[test]

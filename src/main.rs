@@ -1,5 +1,5 @@
-use clap::Parser;
-use crawl::crawler::{crawl, CrawlConfig};
+use clap::{CommandFactory, Parser};
+use crawl::crawler::{crawl, site_domain, CrawlConfig};
 use crawl::extractor;
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -17,9 +17,15 @@ struct Cli {
     #[arg(short, long, env = "CRAWL_DEPTH", default_value_t = 2)]
     depth: usize,
 
-    /// The domain to scope crawling to
+    /// Only follow links on this domain and its subdomains (e.g. `example.com`),
+    /// or on any host with this suffix if it starts with a dot (e.g. `.com`)
     #[arg(long, env = "CRAWL_SCOPE")]
     scope: Option<String>,
+
+    /// Stay on the start URL's site, including all of its subdomains
+    /// (e.g. starting at www.example.com also crawls blog.example.com)
+    #[arg(long, env = "CRAWL_SUBDOMAINS")]
+    subdomains: bool,
 
     /// Delay between requests in milliseconds
     #[arg(long, env = "CRAWL_DELAY_MS", default_value_t = 1000)]
@@ -60,6 +66,24 @@ async fn main() {
     let start_url = cli.start_url;
     let max_depth = cli.depth;
     let user_agent = cli.user_agent;
+    // Checked by hand: clap's `conflicts_with` would also fire for
+    // CRAWL_SUBDOMAINS=false, which is what .env.example sets.
+    if cli.subdomains && cli.scope.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+        Cli::command()
+            .error(
+                clap::error::ErrorKind::ArgumentConflict,
+                "--scope cannot be used with --subdomains",
+            )
+            .exit();
+    }
+    let scope = if cli.subdomains {
+        site_domain(&start_url)
+    } else {
+        cli.scope
+            .as_deref()
+            .map(|s| s.trim().trim_end_matches('.').to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+    };
 
     // Check if stdout is a TTY or being piped, or if quiet mode is explicitly requested
     let is_tty = std::io::stdout().is_terminal();
@@ -91,7 +115,7 @@ Y88b.   888    888  888Y88b 888 d88P888
         println!("  Delay:        {}ms", cli.delay);
         println!("  User-Agent:   {}", user_agent);
         println!("  Concurrency:  {}", cli.concurrency);
-        if let Some(scope) = &cli.scope {
+        if let Some(scope) = &scope {
             println!("  Scope:        {}", scope);
         }
         println!("  Retries:      {}", cli.max_retries);
@@ -111,7 +135,7 @@ Y88b.   888    888  888Y88b 888 d88P888
     let config = CrawlConfig {
         max_depth,
         delay: Duration::from_millis(cli.delay),
-        scope: cli.scope.clone(),
+        scope,
         concurrency: cli.concurrency,
         user_agent: user_agent.clone(),
         timeout: Duration::from_secs(cli.timeout),

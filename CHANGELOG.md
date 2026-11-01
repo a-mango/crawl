@@ -13,12 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retries with exponential backoff for network errors, timeouts, 429 and 5xx
   responses, honouring `Retry-After` (`--max-retries`, default 3)
 - Per-request timeout (`--timeout`, default 30s)
+- `--subdomains` to crawl the start URL's site including all of its subdomains,
+  using the Public Suffix List (e.g. `www.example.co.uk` scopes to `example.co.uk`);
+  also exposed to library users as `crawler::site_domain`
 - Invalid start URLs are rejected with a clear error instead of a panic
 
 ### Changed
 - **Breaking (library):** `crawler::crawl` now takes a start URL and a
   `CrawlConfig` and returns the visited URLs, instead of nine positional
   arguments and a shared `visited` set
+- `--scope` is now case-insensitive and ignores a trailing dot
 - The `user_agent` setting is now applied by the library itself (it was
   previously ignored by `crawl` and only worked through the CLI's client)
 
