@@ -56,7 +56,7 @@ crawl -s https://example.com
 - `-d, --depth <NUM>` - Maximum depth to crawl (default: 2)
 - `--scope <DOMAIN>` - Domain to scope crawling to (e.g., `example.com`, `.com`)
 - `--delay <MS>` - Delay between requests in milliseconds (default: 1000)
-- `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.1.0")
+- `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.2.0")
 - `--concurrency <NUM>` - Maximum number of concurrent requests (default: 10)
 - `-o, --output <FILE>` - Output file path (supports .json or .txt extensions)
 - `-q, --quiet` - Quiet mode - only output URLs (useful for piping)
@@ -109,6 +109,43 @@ crawl -s https://example.com | grep "/api/"
 crawl -s https://example.com | head -n 10
 ```
 
+### Environment variables
+
+Every option can also be set through an environment variable. Command-line flags take precedence.
+
+| Variable            | Flag            |
+|---------------------|-----------------|
+| `CRAWL_START_URL`   | `--start-url`   |
+| `CRAWL_DEPTH`       | `--depth`       |
+| `CRAWL_SCOPE`       | `--scope`       |
+| `CRAWL_DELAY_MS`    | `--delay`       |
+| `CRAWL_USER_AGENT`  | `--user-agent`  |
+| `CRAWL_CONCURRENCY` | `--concurrency` |
+| `CRAWL_OUTPUT`      | `--output`      |
+| `CRAWL_QUIET`       | `--quiet`       |
+
+See [`.env.example`](.env.example) for a template.
+
+## Docker
+
+Build the image and run a crawl:
+
+```bash
+docker build -t crawl .
+docker run --rm crawl -s https://example.com -d 2
+```
+
+With Docker Compose, results written to `/data` inside the container land in `./output`:
+
+```bash
+docker compose run --rm \
+  -e CRAWL_START_URL=https://example.com \
+  -e CRAWL_OUTPUT=/data/results.json \
+  crawl
+```
+
+The Compose service runs as UID/GID 1000 so output files are owned by your user. Set `CRAWL_UID` and `CRAWL_GID` if yours differ.
+
 ## Output
 
 ### Normal Mode (Terminal)
@@ -131,7 +168,7 @@ Starting crawl: https://example.com
 Configuration:
   Max depth:    2
   Delay:        1000ms
-  User-Agent:   rust-crawler/0.1.0
+  User-Agent:   rust-crawler/0.2.0
   Concurrency:  10
 ========================================
 
@@ -164,7 +201,7 @@ When using `-o/--output`, results are saved in the specified format:
 - **JSON**: Structured format with total count and sorted URL list
 - **Text**: One URL per line, sorted alphabetically
 
-Non-HTTP schemes (mailto:, ftp:, etc.) are skipped and logged in normal mode.
+Non-HTTP schemes (mailto:, ftp:, etc.) are skipped. Skipped links and fetch errors are reported on stderr in normal mode, so stdout only ever contains URLs. Links are only extracted from successful (2xx) HTML responses.
 
 ## Architecture
 

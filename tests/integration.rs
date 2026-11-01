@@ -1,6 +1,5 @@
 use crawl::crawler::crawl;
 use crawl::extractor::normalize_url;
-use mockito;
 use reqwest::Client;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -325,4 +324,43 @@ async fn test_http_status_codes_handling() {
     assert!(visited_links.contains(&format!("{}/ok", base.trim_end_matches('/'))));
     assert!(visited_links.contains(&format!("{}/notfound", base.trim_end_matches('/'))));
     assert!(visited_links.contains(&format!("{}/error", base.trim_end_matches('/'))));
+}
+
+#[tokio::test]
+async fn test_deep_crawl_with_low_concurrency_does_not_hang() {
+    let mut server = mockito::Server::new_async().await;
+    let mut mocks = Vec::new();
+    for (path, next) in [("/", "/a"), ("/a", "/b"), ("/b", "/c"), ("/c", "/d")] {
+        mocks.push(
+            server
+                .mock("GET", path)
+                .with_status(200)
+                .with_header("content-type", "text/html")
+                .with_body(format!("<a href='{}'>next</a>", next))
+                .create_async()
+                .await,
+        );
+    }
+
+    let start_url = server.url();
+    let visited = Arc::new(Mutex::new(HashSet::new()));
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        crawl(
+            Client::new(),
+            start_url,
+            4,
+            visited.clone(),
+            Duration::from_millis(1),
+            None,
+            "test-agent".to_string(),
+            Arc::new(Semaphore::new(1)),
+            true,
+        ),
+    )
+    .await;
+
+    assert!(result.is_ok(), "crawl deadlocked with concurrency < depth");
+    assert_eq!(visited.lock().unwrap().len(), 4);
 }
