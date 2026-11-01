@@ -24,7 +24,9 @@ A fast, concurrent web crawler written in Rust 🦀
 - 📊 **Duplicate detection** to avoid revisiting pages
 - 📈 **Crawl statistics** (total pages, time elapsed, average time per page)
 - 🔇 **Quiet mode** for piping output (automatic detection or via flag)
-- 💾 **File output** in JSON or plain text format
+- 💾 **File output** in JSON, plain text, or SQLite (pages, statuses and the link graph)
+- 🗺 **Sitemap discovery** via robots.txt or `/sitemap.xml`, including index and gzipped sitemaps
+- 🤖 **robots.txt** rules and `Crawl-delay` respected, with retries and backoff for flaky servers
 
 ## Installation
 
@@ -54,11 +56,17 @@ crawl -s https://example.com
 
 - `-s, --start-url <URL>` - **Required**. The URL to start crawling from
 - `-d, --depth <NUM>` - Maximum depth to crawl (default: 2)
-- `--scope <DOMAIN>` - Domain to scope crawling to (e.g., `example.com`, `.com`)
+- `--scope <DOMAIN>` - Only follow links on this domain and its subdomains (e.g. `example.com`), or on any host with this suffix if it starts with a dot (e.g. `.com`)
+- `--subdomains` - Stay on the start URL's site, including all of its subdomains (cannot be combined with `--scope`)
 - `--delay <MS>` - Delay between requests in milliseconds (default: 1000)
-- `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.2.0")
+- `--user-agent <STRING>` - Custom User-Agent string (default: "rust-crawler/0.3.0")
 - `--concurrency <NUM>` - Maximum number of concurrent requests (default: 10)
-- `-o, --output <FILE>` - Output file path (supports .json or .txt extensions)
+- `--timeout <SECS>` - Per-request timeout in seconds (default: 30)
+- `--max-retries <NUM>` - Retries for network errors, timeouts, 429 and 5xx responses (default: 3)
+- `--ignore-robots` - Ignore robots.txt rules and `Crawl-delay`
+- `--sitemap` - Also start from every URL listed in the site's sitemaps
+- `--max-pages <NUM>` - Stop after visiting this many pages
+- `-o, --output <FILE>` - Output file: `.json`, `.txt`, or `.db`/`.sqlite`/`.sqlite3` for SQLite
 - `-q, --quiet` - Quiet mode - only output URLs (useful for piping)
 
 ### Examples
@@ -74,6 +82,16 @@ Crawl only within a specific domain:
 ```bash
 crawl -s https://example.com --scope example.com
 ```
+
+Crawl a site and all of its subdomains (here `www.example.com`, `blog.example.com`, …).
+The site is derived from the start URL using the [Public Suffix List](https://publicsuffix.org/),
+so `www.example.co.uk` scopes to `example.co.uk`:
+
+```bash
+crawl -s https://www.example.com --subdomains
+```
+
+Without `--scope` or `--subdomains`, the crawler follows links to any host.
 
 Save results to a JSON file:
 
@@ -113,16 +131,22 @@ crawl -s https://example.com | head -n 10
 
 Every option can also be set through an environment variable. Command-line flags take precedence.
 
-| Variable            | Flag            |
-|---------------------|-----------------|
-| `CRAWL_START_URL`   | `--start-url`   |
-| `CRAWL_DEPTH`       | `--depth`       |
-| `CRAWL_SCOPE`       | `--scope`       |
-| `CRAWL_DELAY_MS`    | `--delay`       |
-| `CRAWL_USER_AGENT`  | `--user-agent`  |
-| `CRAWL_CONCURRENCY` | `--concurrency` |
-| `CRAWL_OUTPUT`      | `--output`      |
-| `CRAWL_QUIET`       | `--quiet`       |
+| Variable              | Flag              |
+|-----------------------|-------------------|
+| `CRAWL_START_URL`     | `--start-url`     |
+| `CRAWL_DEPTH`         | `--depth`         |
+| `CRAWL_SCOPE`         | `--scope`         |
+| `CRAWL_SUBDOMAINS`    | `--subdomains`    |
+| `CRAWL_DELAY_MS`      | `--delay`         |
+| `CRAWL_USER_AGENT`    | `--user-agent`    |
+| `CRAWL_CONCURRENCY`   | `--concurrency`   |
+| `CRAWL_OUTPUT`        | `--output`        |
+| `CRAWL_QUIET`         | `--quiet`         |
+| `CRAWL_TIMEOUT_SECS`  | `--timeout`       |
+| `CRAWL_MAX_RETRIES`   | `--max-retries`   |
+| `CRAWL_IGNORE_ROBOTS` | `--ignore-robots` |
+| `CRAWL_SITEMAP`       | `--sitemap`       |
+| `CRAWL_MAX_PAGES`     | `--max-pages`     |
 
 See [`.env.example`](.env.example) for a template.
 
@@ -168,8 +192,10 @@ Starting crawl: https://example.com
 Configuration:
   Max depth:    2
   Delay:        1000ms
-  User-Agent:   rust-crawler/0.2.0
+  User-Agent:   rust-crawler/0.3.0
   Concurrency:  10
+  Retries:      3
+  robots.txt:   respected
 ========================================
 
 https://example.com
@@ -186,7 +212,7 @@ Statistics:
 
 ### Quiet Mode (Piping)
 
-When output is piped to another program or when using the `-q/--quiet` flag, only URLs are printed (one per line):
+When output is piped to another program or when using the `-q/--quiet` flag, only URLs are printed to stdout (one per line). Diagnostics still go to stderr unless `-q` is given:
 
 ```
 https://example.com
@@ -200,8 +226,79 @@ When using `-o/--output`, results are saved in the specified format:
 
 - **JSON**: Structured format with total count and sorted URL list
 - **Text**: One URL per line, sorted alphabetically
+- **SQLite** (`.db`, `.sqlite`, `.sqlite3`): every page with its status, content
+  type, depth and errors, plus every link between pages. Each run is appended as
+  a new crawl, so one database can hold a history of crawls.
 
-Non-HTTP schemes (mailto:, ftp:, etc.) are skipped. Skipped links and fetch errors are reported on stderr in normal mode, so stdout only ever contains URLs. Links are only extracted from successful (2xx) HTML responses.
+### SQLite schema
+
+| Table    | Columns                                                                                  |
+|----------|------------------------------------------------------------------------------------------|
+| `crawls` | `id`, `start_url`, `started_at`, `finished_at`, `page_count`, `crawler_version`          |
+| `pages`  | `crawl_id`, `url`, `depth`, `status`, `content_type`, `error`, `fetched_at`              |
+| `links`  | `crawl_id`, `source`, `target` (every http(s) link found, followed or not)               |
+
+Timestamps are Unix milliseconds. Some example queries:
+
+```sql
+-- Broken pages in the latest crawl, and which pages link to them
+SELECT p.url, p.status, l.source
+FROM pages p JOIN links l ON l.crawl_id = p.crawl_id AND l.target = p.url
+WHERE p.crawl_id = (SELECT MAX(id) FROM crawls) AND (p.status >= 400 OR p.error IS NOT NULL);
+
+-- Most linked-to pages
+SELECT target, COUNT(*) AS inbound FROM links WHERE crawl_id = 1
+GROUP BY target ORDER BY inbound DESC LIMIT 10;
+
+-- When each crawl ran
+SELECT id, start_url, datetime(started_at / 1000, 'unixepoch') FROM crawls;
+```
+
+Non-HTTP schemes (mailto:, ftp:, etc.) are skipped. Diagnostics (fetch errors, retries, robots.txt decisions) go to stderr and are silenced by `-q`, so stdout only ever contains URLs. Links are only extracted from successful (2xx) HTML responses.
+
+## Sitemaps
+
+With `--sitemap`, the crawler reads the start site's sitemaps before crawling
+and uses every listed URL as an additional starting point (at depth 0). Sitemaps
+are taken from the `Sitemap:` lines in robots.txt, falling back to
+`/sitemap.xml`. XML, plain-text and gzipped sitemaps are supported, and sitemap
+index files are followed (up to 100 sitemap files). Sitemap entries still go
+through `--scope`/`--subdomains` and robots.txt. Large sites can list tens of
+thousands of URLs, so combine it with `--max-pages`:
+
+```bash
+crawl -s https://blog.example.com --sitemap --max-pages 500 -o blog.db
+```
+
+## Politeness
+
+- **robots.txt** is fetched once per site and its rules are matched against the
+  User-Agent's product token (the part before `/`). Following
+  [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309), a missing robots.txt (4xx)
+  allows everything, while a server error or unreachable robots.txt blocks the
+  whole site. `Crawl-delay` is honoured when it is longer than `--delay`.
+  Use `--ignore-robots` only on sites you own or have permission to crawl.
+- **Retries** use exponential backoff starting at 500ms (capped at 60s).
+  A `Retry-After` header on 429/503 responses takes precedence.
+
+## Library usage
+
+```rust
+use crawl::crawler::{crawl, CrawlConfig};
+
+let report = crawl("https://example.com", CrawlConfig {
+    max_depth: 3,
+    scope: Some("example.com".into()),
+    ..CrawlConfig::default()
+}).await?;
+
+for page in &report.pages {
+    println!("{} {:?} ({} links)", page.url, page.status, page.links.len());
+}
+
+// Optionally persist it
+crawl::storage::save_sqlite("crawl.db", "https://example.com", started, finished, &report)?;
+```
 
 ## Architecture
 
@@ -211,11 +308,17 @@ The crawler is built with:
 - **tokio** - Async runtime
 - **scraper** - HTML parsing and link extraction
 - **clap** - Command-line argument parsing
+- **texting_robots** - robots.txt parsing
+- **psl** - Public Suffix List lookups for `--subdomains`
+- **quick-xml** / **flate2** - Sitemap parsing and decompression
+- **rusqlite** - SQLite output (SQLite is bundled, no system library needed)
 
 The codebase is modular:
 
 - `crawler.rs` - Core crawling logic with concurrency control
 - `extractor.rs` - HTML parsing and link extraction
+- `sitemap.rs` - Sitemap parsing
+- `storage.rs` - SQLite output
 - `main.rs` - CLI interface
 
 ## Testing
@@ -233,9 +336,6 @@ The project includes:
 
 ## Limitations
 
-- No robots.txt support
-- No sitemap.xml support
-- No retry logic for failed requests
 - No resume/checkpoint functionality
 
 ## Contributing
@@ -248,12 +348,13 @@ This software is licensed under the MIT License. See [LICENSE](LICENSE) for deta
 
 ## Roadmap
 
-- [ ] Add retry logic with exponential backoff
-- [ ] Respect robots.txt
-- [ ] Support for sitemap.xml
+- [x] Add retry logic with exponential backoff
+- [x] Respect robots.txt
+- [x] Support for sitemap.xml
 - [ ] Resume crawling from checkpoint
 - [ ] Better progress indicators
-- [ ] Handle rate limiting (429 responses)
+- [x] Handle rate limiting (429 responses)
 - [ ] Add CSV output format
 - [ ] Add option to download crawled content
-- [ ] Store crawled links as a graph structure
+- [x] Store crawled links as a graph structure
+- [x] Store crawl results in a database

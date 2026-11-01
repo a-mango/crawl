@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-01
+
+### Added
+- robots.txt support (RFC 9309): rules are fetched once per site and matched
+  against the User-Agent; `Crawl-delay` is honoured. Opt out with `--ignore-robots`
+- Retries with exponential backoff for network errors, timeouts, 429 and 5xx
+  responses, honouring `Retry-After` (`--max-retries`, default 3)
+- Per-request timeout (`--timeout`, default 30s)
+- `--subdomains` to crawl the start URL's site including all of its subdomains,
+  using the Public Suffix List (e.g. `www.example.co.uk` scopes to `example.co.uk`);
+  also exposed to library users as `crawler::site_domain`
+- `--sitemap`: seed the crawl with URLs from the site's sitemaps (robots.txt
+  `Sitemap:` lines or `/sitemap.xml`); supports XML, plain-text, gzipped and
+  sitemap index files
+- `--max-pages` to stop after a number of pages
+- SQLite output (`-o results.db`): pages with status, content type, depth and
+  errors, plus the full link graph; each run is appended as a new crawl
+- Crawl statistics report the number of failed pages
+- Invalid start URLs are rejected with a clear error instead of a panic
+
+### Changed
+- **Breaking (library):** `crawler::crawl` now takes a start URL and a
+  `CrawlConfig` and returns a `CrawlReport` (one `Page` per visited URL),
+  instead of nine positional arguments and a shared `visited` set
+- Diagnostics stay on stderr when stdout is piped; only `-q` silences them.
+  Expected non-HTTP links (mailto:, tel:, …) are no longer logged
+- A failure to save the output file now exits with status 1
+- Minimum supported Rust version is now 1.89
+- `--scope` is now case-insensitive and ignores a trailing dot
+- Relative links on redirected pages now resolve against the final URL
+- The `user_agent` setting is now applied by the library itself (it was
+  previously ignored by `crawl` and only worked through the CLI's client)
+
 ## [0.2.0] - 2026-11-01
 
 ### Added
@@ -50,5 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No robots.txt support
 - No retry logic for failed requests
 
+[0.3.0]: https://github.com/a-mango/crawl/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/a-mango/crawl/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/a-mango/crawl/releases/tag/v0.1.0
